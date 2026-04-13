@@ -1,4 +1,4 @@
-"""VibeFinder 1.0 — content-based music recommender.
+"""Antoine — content-based music recommender.
 
 Two parallel APIs share the same scoring core:
 - OOP (Song, UserProfile, Recommender) — used by tests/test_recommender.py

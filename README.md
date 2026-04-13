@@ -2,14 +2,14 @@
 
 ## Project Summary
 
-**VibeFinder 1.0** is a content-based music recommender. Given a small catalog of songs and a user's taste profile, it scores every song against the profile and returns the top *k* picks with a plain-English "because..." explanation for each.
+**Antoine** is a content-based music recommender. Given a small catalog of songs and a user's taste profile, it scores every song against the profile and returns the top *k* picks with a plain-English "because..." explanation for each.
 
 Real platforms like Spotify and TikTok combine two ideas:
 
 - **Collaborative filtering** — "people who liked what you like also liked X." Uses behavior across users (plays, skips, saves, watch-time). Doesn't need to know anything about the song itself.
 - **Content-based filtering** — "this song looks like the stuff you already like." Uses song attributes (genre, tempo, energy, mood, acousticness) and compares them to the user's preferences.
 
-VibeFinder is purely content-based. It is a classroom simulation, not a production system — no user history, no cross-user signal, no learning.
+Antoine is purely content-based. It is a classroom simulation, not a production system — no user history, no cross-user signal, no learning.
 
 ---
 
@@ -159,7 +159,7 @@ Read and complete `model_card.md`:
 
 [**Model Card**](model_card.md)
 
-> **[REPLACE WITH YOUR OWN 1-2 PARAGRAPH REFLECTION]**
->
-> Prompts: what did you learn about how recommenders turn data into predictions? Where did you see bias or unfairness sneak in? What did the weight-shift experiment teach you that reading code alone wouldn't have?
+the main thing this project taught me is how much of a recommender is just "assign points, then sort." the math is shallow, the interesting part is which features you decide matter and by how much. whoever sets the weights is basically deciding the taste of everyone who uses the thing.
+
+the bias stuff became pretty obvious once i ran the weight shift experiment. a user typing "pop" gets funneled to pop no matter how the rest of their profile looks because the genre weight is so high nothing else can really compete. thats the filter bubble problem in tiny form. scale it up to a platform where your history also feeds back into the weights and you can see how people get stuck in a vibe they maybe didnt choose.
 
