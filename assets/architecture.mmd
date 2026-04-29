@@ -1,0 +1,22 @@
+flowchart LR
+    subgraph "Build catalog (run once, offline)"
+        Y[YouTube URLs<br/>data/catalog.csv] --> D[yt-dlp<br/>download audio]
+        D --> F[librosa<br/>BPM + mel-spec]
+        D --> M[MERT<br/>768-dim embedding]
+        F --> FP[fingerprints/*.png<br/>committed]
+        M --> EMB[embeddings.npy<br/>committed]
+        D -.discarded.-> X[temp .wav<br/>deleted]
+    end
+
+    subgraph "Query (per user run)"
+        Q[seed: catalog name<br/>or new YouTube URL] --> R[recommender.top_k<br/>cosine over mean-centered embeddings]
+        EMB --> R
+        R --> E[explain.py<br/>genre + BPM + score]
+        E --> O[top-5 recommendations]
+    end
+
+    subgraph "Evaluation"
+        EMB --> H[eval/harness.py<br/>spread, artist_recall, genre_diversity]
+        CLAP[embeddings_clap.npy<br/>CLAP comparison] --> H
+        H --> T[comparison table]
+    end
