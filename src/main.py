@@ -1,100 +1,95 @@
-"""CLI runner for Antoine — runs several user profiles and prints ranked recs."""
+"""Antoine v2 CLI.
+
+Three query modes:
+  --seed <name>     Use a song already in the catalog as the seed (instant, no model load).
+  --youtube <url>   Embed a new YouTube track on the fly (downloads MERT on first run, ~400MB).
+  --list            List the catalog.
+"""
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+import argparse
+import logging
+import sys
 
-from src.recommender import WEIGHTS, load_songs, recommend_songs
-
-
-PROFILES: List[Tuple[str, Dict]] = [
-    (
-        "Happy Pop Commuter",
-        {
-            "genre": "pop",
-            "mood": "happy",
-            "energy": 0.8,
-            "valence": 0.85,
-            "danceability": 0.8,
-            "likes_acoustic": False,
-        },
-    ),
-    (
-        "Chill Lofi Studier",
-        {
-            "genre": "lofi",
-            "mood": "focused",
-            "energy": 0.35,
-            "valence": 0.55,
-            "danceability": 0.45,
-            "likes_acoustic": True,
-        },
-    ),
-    (
-        "Deep Intense Rock",
-        {
-            "genre": "rock",
-            "mood": "intense",
-            "energy": 0.9,
-            "valence": 0.45,
-            "danceability": 0.6,
-            "likes_acoustic": False,
-        },
-    ),
-    (
-        "Adversarial: Conflicted Listener",
-        {
-            "genre": "edm",
-            "mood": "sad",
-            "energy": 0.9,
-            "valence": 0.2,
-            "danceability": 0.9,
-            "likes_acoustic": True,
-        },
-    ),
-]
+from src.recommender import (
+    load_catalog, load_embeddings, find_by_query, top_k, top_k_from_vector,
+)
+from src.explain import explain
 
 
-def print_recommendations(
-    profile_name: str,
-    user_prefs: Dict,
-    songs: List[Dict],
-    k: int = 5,
-    weights: Dict[str, float] = WEIGHTS,
-) -> None:
-    print("=" * 72)
-    print(f"Profile: {profile_name}")
-    print(f"Prefs:   {user_prefs}")
-    if weights is not WEIGHTS:
-        print(f"Weights: {weights}")
-    print("-" * 72)
-    recs = recommend_songs(user_prefs, songs, k=k, weights=weights)
-    for rank, (song, score, explanation) in enumerate(recs, start=1):
-        print(f"{rank}. {song['title']} — {song['artist']}  [{song['genre']}/{song['mood']}]")
-        print(f"   score={score:.2f}")
-        print(f"   because: {explanation}")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("antoine")
+
+
+def cmd_list(args):
+    catalog = load_catalog()
+    print(f"Catalog ({len(catalog)} tracks):")
+    for i, e in enumerate(catalog, 1):
+        print(f"  {i:2d}. [{e.genre:18s}]  {e.artist} — {e.title}  ({e.bpm:.0f} BPM)")
+
+
+def cmd_seed(args):
+    catalog = load_catalog()
+    embeddings = load_embeddings()
+    try:
+        seed_idx = find_by_query(catalog, args.seed)
+    except LookupError as e:
+        log.error(str(e))
+        sys.exit(1)
+
+    seed = catalog[seed_idx]
+    log.info(f"seed: {seed.artist} — {seed.title}  [{seed.genre}, {seed.bpm:.0f} BPM]")
+
+    results = top_k(seed_idx, embeddings, k=args.k)
     print()
+    print(f"Top {args.k} recommendations like '{seed.artist} - {seed.title}':")
+    for rank, (j, score) in enumerate(results, 1):
+        nb = catalog[j]
+        print(f"  {rank}. {nb.artist} — {nb.title}  [{nb.genre}, {nb.bpm:.0f} BPM]")
+        print(f"     because: {explain(seed, nb, score)}")
 
 
-def main() -> None:
-    songs = load_songs("data/songs.csv")
-    print(f"Loaded songs: {len(songs)}\n")
-    for name, prefs in PROFILES:
-        print_recommendations(name, prefs, songs, k=5)
+def cmd_youtube(args):
+    catalog = load_catalog()
+    embeddings = load_embeddings()
+    log.info("downloading + embedding new track (first run will download MERT ~400MB)")
+    from src.embedder import embed_url
+    vec = embed_url(args.youtube)
 
-    print("#" * 72)
-    print("EXPERIMENT: energy-dominant weights (2x energy, 0.5x genre)")
-    print("#" * 72 + "\n")
-    shifted = dict(WEIGHTS)
-    shifted["energy"] = WEIGHTS["energy"] * 2.0
-    shifted["genre"] = WEIGHTS["genre"] * 0.5
-    rock_profile = PROFILES[2]
-    print_recommendations(
-        rock_profile[0] + " (shifted weights)",
-        rock_profile[1],
-        songs,
-        k=5,
-        weights=shifted,
+    results = top_k_from_vector(vec, embeddings, k=args.k)
+    print()
+    print(f"Top {args.k} recommendations like {args.youtube}:")
+    # synthesize a stand-in seed entry for explanation
+    from src.recommender import CatalogEntry
+    seed = CatalogEntry(
+        id="query", title="(your URL)", artist="(query)",
+        genre="?", youtube_url=args.youtube, bpm=0.0, fingerprint_path="",
     )
+    for rank, (j, score) in enumerate(results, 1):
+        nb = catalog[j]
+        print(f"  {rank}. {nb.artist} — {nb.title}  [{nb.genre}, {nb.bpm:.0f} BPM]")
+        print(f"     because: audio similarity {score:+.3f} (seed BPM unknown)")
+
+
+def main():
+    p = argparse.ArgumentParser(description="Antoine: audio-similarity music recommender")
+    p.add_argument("-k", type=int, default=5, help="how many recommendations to return")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--seed", type=str, help="seed song from the catalog (artist or title substring)")
+    g.add_argument("--youtube", type=str, help="YouTube URL of a new song to use as seed")
+    g.add_argument("--list", action="store_true", help="list the catalog and exit")
+    args = p.parse_args()
+
+    if args.list:
+        cmd_list(args)
+    elif args.seed:
+        cmd_seed(args)
+    elif args.youtube:
+        cmd_youtube(args)
 
 
 if __name__ == "__main__":

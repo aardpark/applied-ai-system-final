@@ -13,3 +13,15 @@ venv/
 
 # Pytest cache
 .pytest_cache/
+
+# Audio (we never ship audio files)
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.ogg
+data/audio/
+
+# HuggingFace caches stay in ~/.cache, but exclude any local copies
+hf_cache/
+

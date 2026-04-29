@@ -1,3 +1,16 @@
+numpy>=1.26
 pandas
+pillow
+
+# Embedding model + audio I/O
+torch>=2.0
+transformers>=4.36
+librosa>=0.10
+soundfile
+
+# YouTube ingestion (only needed for build_catalog and --youtube queries)
+yt-dlp
+
+# Test + plotting
 pytest
-streamlit
+matplotlib

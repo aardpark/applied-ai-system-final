@@ -1,161 +1,119 @@
-"""Antoine — content-based music recommender.
+"""Audio-similarity recommender (Antoine v2).
 
-Two parallel APIs share the same scoring core:
-- OOP (Song, UserProfile, Recommender) — used by tests/test_recommender.py
-- Functional (load_songs, score_song, recommend_songs) — used by src/main.py
+Loads precomputed MERT embeddings + catalog metadata. Returns top-k by cosine
+similarity in the mean-centered embedding space.
+
+The original heuristic Antoine lives in src/baseline.py and is kept for the
+eval harness comparison.
 """
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+import numpy as np
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+CATALOG_CSV = DATA_DIR / "catalog.csv"
+EMBEDDINGS_NPY = DATA_DIR / "embeddings.npy"
 
 
 @dataclass
-class Song:
-    id: int
+class CatalogEntry:
+    id: str
     title: str
     artist: str
     genre: str
-    mood: str
-    energy: float
-    tempo_bpm: float
-    valence: float
-    danceability: float
-    acousticness: float
+    youtube_url: str
+    bpm: float
+    fingerprint_path: str
 
 
-@dataclass
-class UserProfile:
-    favorite_genre: str
-    favorite_mood: str
-    target_energy: float
-    likes_acoustic: bool
-    target_valence: float = 0.5
-    target_danceability: float = 0.5
-
-
-WEIGHTS = {
-    "genre": 2.0,
-    "mood": 1.0,
-    "energy": 1.0,
-    "valence": 0.75,
-    "danceability": 0.5,
-    "acoustic_fit": 0.5,
-}
-ACOUSTIC_THRESHOLD = 0.5
-
-
-def _score_components(user: UserProfile, song: Song, weights: Dict[str, float] = WEIGHTS) -> Tuple[float, List[str]]:
-    """Compute (score, reasons) for a song/user pair. Canonical scoring core."""
-    score = 0.0
-    reasons: List[str] = []
-
-    if song.genre == user.favorite_genre:
-        score += weights["genre"]
-        reasons.append(f"genre match (+{weights['genre']:.2f})")
-
-    if song.mood == user.favorite_mood:
-        score += weights["mood"]
-        reasons.append(f"mood match (+{weights['mood']:.2f})")
-
-    energy_sim = 1.0 - abs(user.target_energy - song.energy)
-    energy_pts = weights["energy"] * energy_sim
-    score += energy_pts
-    reasons.append(f"energy similarity (+{energy_pts:.2f})")
-
-    valence_sim = 1.0 - abs(user.target_valence - song.valence)
-    valence_pts = weights["valence"] * valence_sim
-    score += valence_pts
-    reasons.append(f"valence similarity (+{valence_pts:.2f})")
-
-    dance_sim = 1.0 - abs(user.target_danceability - song.danceability)
-    dance_pts = weights["danceability"] * dance_sim
-    score += dance_pts
-    reasons.append(f"danceability similarity (+{dance_pts:.2f})")
-
-    song_is_acoustic = song.acousticness >= ACOUSTIC_THRESHOLD
-    if song_is_acoustic == user.likes_acoustic:
-        score += weights["acoustic_fit"]
-        label = "acoustic" if user.likes_acoustic else "non-acoustic"
-        reasons.append(f"{label} preference fit (+{weights['acoustic_fit']:.2f})")
-
-    return score, reasons
-
-
-class Recommender:
-    """OOP API: wraps a static song catalog and ranks it against a UserProfile."""
-
-    def __init__(self, songs: List[Song]):
-        self.songs = songs
-
-    def score(self, user: UserProfile, song: Song) -> Tuple[float, List[str]]:
-        return _score_components(user, song)
-
-    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
-        scored = [(self.score(user, s)[0], s) for s in self.songs]
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [song for _, song in scored[:k]]
-
-    def explain_recommendation(self, user: UserProfile, song: Song) -> str:
-        score, reasons = self.score(user, song)
-        return f"score={score:.2f} — " + " · ".join(reasons)
-
-
-def _coerce_song_row(row: Dict[str, str]) -> Dict:
-    """Normalize a CSV row into a typed dict with numeric fields as floats/ints."""
-    return {
-        "id": int(row["id"]),
-        "title": row["title"],
-        "artist": row["artist"],
-        "genre": row["genre"],
-        "mood": row["mood"],
-        "energy": float(row["energy"]),
-        "tempo_bpm": float(row["tempo_bpm"]),
-        "valence": float(row["valence"]),
-        "danceability": float(row["danceability"]),
-        "acousticness": float(row["acousticness"]),
-    }
-
-
-def load_songs(csv_path: str) -> List[Dict]:
-    """Load songs from a CSV file into a list of typed dicts."""
+def load_catalog(csv_path: Path = CATALOG_CSV) -> list[CatalogEntry]:
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"catalog not found at {csv_path}. "
+            "Run `python -m src.build_catalog` to build it."
+        )
+    rows = []
     with open(csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return [_coerce_song_row(row) for row in reader]
+        for r in csv.DictReader(f):
+            rows.append(CatalogEntry(
+                id=r["id"], title=r["title"], artist=r["artist"], genre=r["genre"],
+                youtube_url=r["youtube_url"], bpm=float(r["bpm"]),
+                fingerprint_path=r["fingerprint_path"],
+            ))
+    return rows
 
 
-def _user_prefs_to_profile(prefs: Dict) -> UserProfile:
-    return UserProfile(
-        favorite_genre=prefs.get("genre", ""),
-        favorite_mood=prefs.get("mood", ""),
-        target_energy=float(prefs.get("energy", 0.5)),
-        target_valence=float(prefs.get("valence", 0.5)),
-        target_danceability=float(prefs.get("danceability", 0.5)),
-        likes_acoustic=bool(prefs.get("likes_acoustic", False)),
-    )
+def load_embeddings(npy_path: Path = EMBEDDINGS_NPY) -> np.ndarray:
+    if not npy_path.exists():
+        raise FileNotFoundError(
+            f"embeddings not found at {npy_path}. "
+            "Run `python -m src.build_catalog` to build them."
+        )
+    emb = np.load(npy_path)
+    return emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-9)
 
 
-def score_song(
-    user_prefs: Dict, song: Dict, weights: Dict[str, float] = WEIGHTS
-) -> Tuple[float, List[str]]:
-    """Score a single song dict against a user_prefs dict. Returns (score, reasons)."""
-    user = _user_prefs_to_profile(user_prefs)
-    song_obj = Song(**song)
-    return _score_components(user, song_obj, weights=weights)
+def mean_center(emb: np.ndarray) -> np.ndarray:
+    """Subtract global mean, renormalize. Fixes the 'narrow cone' anisotropy
+    common to contrastive-trained embedding models."""
+    mu = emb.mean(axis=0, keepdims=True)
+    centered = emb - mu
+    return centered / (np.linalg.norm(centered, axis=1, keepdims=True) + 1e-9)
 
 
-def recommend_songs(
-    user_prefs: Dict,
-    songs: List[Dict],
+def find_by_query(catalog: list[CatalogEntry], query: str) -> int:
+    """Find a catalog index by case-insensitive substring match against
+    title or artist. Raises if zero or multiple matches."""
+    q = query.lower().strip()
+    matches = [
+        (i, e) for i, e in enumerate(catalog)
+        if q in e.title.lower() or q in e.artist.lower() or q == e.id.lower()
+    ]
+    if not matches:
+        raise LookupError(f"no catalog entry matches '{query}'")
+    if len(matches) > 1:
+        names = ", ".join(f"{e.artist} - {e.title}" for _, e in matches[:5])
+        raise LookupError(f"multiple matches for '{query}': {names}")
+    return matches[0][0]
+
+
+def top_k(
+    seed_idx: int,
+    embeddings: np.ndarray,
     k: int = 5,
-    weights: Dict[str, float] = WEIGHTS,
-) -> List[Tuple[Dict, float, str]]:
-    """Rank songs against user_prefs and return top-k as (song_dict, score, explanation)."""
-    results = []
-    for song in songs:
-        score, reasons = score_song(user_prefs, song, weights=weights)
-        explanation = " · ".join(reasons)
-        results.append((song, score, explanation))
-    results.sort(key=lambda triple: triple[1], reverse=True)
-    return results[:k]
+    centered: bool = True,
+) -> list[tuple[int, float]]:
+    """Return [(catalog_idx, cosine_score), ...] for top-k neighbors of seed.
+    Excludes the seed itself."""
+    emb = mean_center(embeddings) if centered else embeddings
+    sim = emb @ emb[seed_idx]
+    sim[seed_idx] = -np.inf
+    order = np.argsort(-sim)[:k]
+    return [(int(i), float(sim[i])) for i in order]
+
+
+def top_k_from_vector(
+    query_vec: np.ndarray,
+    embeddings: np.ndarray,
+    k: int = 5,
+    centered: bool = True,
+) -> list[tuple[int, float]]:
+    """Same as top_k but for an external query vector (e.g. a new YouTube URL).
+    The query is centered against the catalog mean."""
+    if centered:
+        mu = embeddings.mean(axis=0, keepdims=True)
+        emb_c = embeddings - mu
+        emb_c = emb_c / (np.linalg.norm(emb_c, axis=1, keepdims=True) + 1e-9)
+        q = query_vec - mu.squeeze(0)
+        q = q / (np.linalg.norm(q) + 1e-9)
+        sim = emb_c @ q
+    else:
+        sim = embeddings @ (query_vec / (np.linalg.norm(query_vec) + 1e-9))
+    order = np.argsort(-sim)[:k]
+    return [(int(i), float(sim[i])) for i in order]
