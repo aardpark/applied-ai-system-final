@@ -71,12 +71,14 @@ def embed_audio_file(wav: Path) -> np.ndarray:
     return (vec / (np.linalg.norm(vec) + 1e-9)).astype(np.float32)
 
 
-def embed_url(url: str) -> np.ndarray:
-    """Download a YouTube URL, embed with MERT, return a vector. Audio deleted."""
+def embed_url(url: str) -> tuple[np.ndarray, float]:
+    """Download a YouTube URL, embed with MERT, return (vector, bpm).
+    Audio is deleted after."""
     with tempfile.TemporaryDirectory() as tmp:
         wav = download_audio(url, Path(tmp) / "track")
+        bpm, _ = render_fingerprint(wav)
         vec = embed_audio_file(wav)
-    return vec
+    return vec, bpm
 
 
 def render_fingerprint(wav: Path) -> tuple[float, np.ndarray]:

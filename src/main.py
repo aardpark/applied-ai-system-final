@@ -9,10 +9,18 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+
+# Quiet down noisy upstream loggers before importing them.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+for _name in ("httpx", "httpcore", "urllib3", "transformers", "huggingface_hub"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 from src.recommender import (
     load_catalog, load_embeddings, find_by_query, top_k, top_k_from_vector,
+    CatalogEntry,
 )
 from src.explain import explain
 
@@ -58,21 +66,25 @@ def cmd_youtube(args):
     embeddings = load_embeddings()
     log.info("downloading + embedding new track (first run will download MERT ~400MB)")
     from src.embedder import embed_url
-    vec = embed_url(args.youtube)
+    vec, bpm = embed_url(args.youtube)
+    log.info(f"new track BPM: {bpm:.1f}")
 
-    results = top_k_from_vector(vec, embeddings, k=args.k)
-    print()
-    print(f"Top {args.k} recommendations like {args.youtube}:")
-    # synthesize a stand-in seed entry for explanation
-    from src.recommender import CatalogEntry
+    # Filter out near-duplicates of the query (when the URL is already in the catalog,
+    # cosine ≈ 1.0; we want to show only genuinely different songs).
+    results = top_k_from_vector(vec, embeddings, k=args.k + 5)
+    results = [(i, s) for i, s in results if s < 0.999][: args.k]
+
     seed = CatalogEntry(
         id="query", title="(your URL)", artist="(query)",
-        genre="?", youtube_url=args.youtube, bpm=0.0, fingerprint_path="",
+        genre="?", youtube_url=args.youtube, bpm=bpm, fingerprint_path="",
     )
+
+    print()
+    print(f"Top {args.k} recommendations like {args.youtube}  (seed BPM ~{bpm:.0f}):")
     for rank, (j, score) in enumerate(results, 1):
         nb = catalog[j]
         print(f"  {rank}. {nb.artist} — {nb.title}  [{nb.genre}, {nb.bpm:.0f} BPM]")
-        print(f"     because: audio similarity {score:+.3f} (seed BPM unknown)")
+        print(f"     because: {explain(seed, nb, score)}")
 
 
 def main():

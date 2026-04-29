@@ -16,10 +16,16 @@ def bpm_proximity_label(seed_bpm: float, neighbor_bpm: float) -> str:
 def explain(seed: CatalogEntry, neighbor: CatalogEntry, score: float) -> str:
     """Build a single-line reason string."""
     parts = []
-    if neighbor.genre != seed.genre:
-        parts.append(f"crosses genre ({neighbor.genre} vs your {seed.genre})")
+    if seed.genre and seed.genre != "?":
+        if neighbor.genre != seed.genre:
+            parts.append(f"crosses genre ({neighbor.genre} vs your {seed.genre})")
+        else:
+            parts.append(f"same genre ({seed.genre})")
     else:
-        parts.append(f"same genre ({seed.genre})")
-    parts.append(bpm_proximity_label(seed.bpm, neighbor.bpm))
+        parts.append(f"genre {neighbor.genre}")
+    if seed.bpm > 0:
+        parts.append(bpm_proximity_label(seed.bpm, neighbor.bpm))
+    else:
+        parts.append(f"{neighbor.bpm:.0f} BPM")
     parts.append(f"audio similarity {score:+.3f}")
     return " · ".join(parts)
