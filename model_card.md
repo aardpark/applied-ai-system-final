@@ -37,6 +37,8 @@ The CLAP comparison embeddings (`data/embeddings_clap.npy`) are also included so
 
 ---
 
+## 6. Limitations and Bias
+
 the catalog has 24 songs because that's a curation choice, but if i were to actually grow this to thousands or tens of thousands of songs, two things would break. first, the embed step is slow. 24 songs took about a minute. 24000 would take most of a day. thats a real bottleneck if you want this to be something people add to. second, with that many songs the cross-genre matches start to mean less. theres always going to be some random pair that scores high just by coincidence, and the more songs you have the more of those false matches you find.
 
 the other thing is that MERT is a black box. we don't actually know what its matching on. it could be picking up on rhythm, or production style, or some feature we cant even name. the recommendations look right to us but theres no way to verify that the model is matching on things we'd say matter and not on things we'd say dont. you kinda have to just trust the rankings, or run the eval harness and hope the metrics catch the failure modes.
@@ -73,6 +75,8 @@ the most surprising thing was that spread looked like the right metric but it wa
 the realistic misuse is making it too good. if you build a recommender that's really good at finding songs that hit the same vibe as something you already love, people can spend hours just chasing variations of one feeling. its the same rabbit hole problem spotify and tiktok have. the cross-genre design partially helps because it pulls you out of one genre tag, but it doesnt prevent the deeper "im stuck in a vibe" problem.
 
 ---
+
+## 9. AI Collaboration Notes
 
 i worked through this project with an AI assistant. two moments stood out.
 
