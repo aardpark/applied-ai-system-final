@@ -259,13 +259,15 @@ applied-ai-system-final/
 
 ## Demo walkthrough
 
-🎥 **[Loom video link goes here]**
+🎥 **[Watch the demo](assets/demo.mp4)** — a recorded walkthrough showing the system running end-to-end.
 
-The video shows: catalog listing, three seed-song recommendations across different genres, one YouTube-URL query, the eval harness output, and the unit tests.
+[![demo video](assets/architecture.png)](https://github.com/aardpark/applied-ai-system-final/raw/main/assets/demo.mp4)
 
-To run the demo end-to-end yourself:
+The video shows: catalog listing, three seed-song recommendations across different genres, one live YouTube-URL query (MERT inference + dedup filter), the eval harness output, and the unit tests passing.
+
+To run the demo yourself:
 
 ```bash
 ./demo.sh           # interactive, press Enter between sections
-./demo.sh --auto    # auto-advance with 8s pauses (hands-free)
+./demo.sh --auto    # auto-advance with 10s pauses (hands-free)
 ```
