@@ -261,4 +261,11 @@ applied-ai-system-final/
 
 🎥 **[Loom video link goes here]**
 
-The video shows: catalog listing, three seed-song recommendations across different genres, one YouTube-URL query, and the eval harness output.
+The video shows: catalog listing, three seed-song recommendations across different genres, one YouTube-URL query, the eval harness output, and the unit tests.
+
+To run the demo end-to-end yourself:
+
+```bash
+./demo.sh           # interactive, press Enter between sections
+./demo.sh --auto    # auto-advance with 8s pauses (hands-free)
+```
