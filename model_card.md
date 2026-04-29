@@ -37,13 +37,15 @@ The CLAP comparison embeddings (`data/embeddings_clap.npy`) are also included so
 
 ---
 
-## 6. Limitations and Bias
+the catalog has 24 songs because that's a curation choice, but if i were to actually grow this to thousands or tens of thousands of songs, two things would break. first, the embed step is slow. 24 songs took about a minute. 24000 would take most of a day. thats a real bottleneck if you want this to be something people add to. second, with that many songs the cross-genre matches start to mean less. theres always going to be some random pair that scores high just by coincidence, and the more songs you have the more of those false matches you find.
 
-- **Catalog is one person's taste.** 24 songs heavy on hip-hop and electronic, light on country, jazz, classical, ambient. Cross-genre matches will look different on different catalogs. With more songs the recommender's biases would surface in different places.
-- **MERT's training data is Western-pop-heavy.** Embeddings are likely to be richer for pop/rock/electronic than for non-Western genres. This catalog has very little non-Western music outside of j-pop/k-pop, so the bias is masked rather than absent.
-- **BPM detection fails on free-tempo music.** librosa's beat tracker handles 4/4 dance music well. For IDM (Aphex Twin) and acoustic ballads it can be off by a factor of 2. BPM appears in explanations only; it doesn't steer ranking.
-- **No "no good matches" outcome.** The system always returns 5 results. With a 24-track catalog that's fine; at 24,000 you'd want a confidence threshold.
-- **Pretrained-model opacity.** Unlike v1's hand-tuned weights, v2's notion of similarity is opaque. The eval harness is the only check on whether the model is doing something real or hallucinating coherence.
+the other thing is that MERT is a black box. we don't actually know what its matching on. it could be picking up on rhythm, or production style, or some feature we cant even name. the recommendations look right to us but theres no way to verify that the model is matching on things we'd say matter and not on things we'd say dont. you kinda have to just trust the rankings, or run the eval harness and hope the metrics catch the failure modes.
+
+a few smaller ones worth flagging:
+
+- the catalog is one person's taste — 24 songs heavy on hip-hop and electronic, very little outside western pop. cross-genre matches will look different on different catalogs.
+- BPM detection fails on free-tempo music (IDM, ballads). BPM only shows up in explanations, not in ranking, so this isnt critical but its a known noisy signal.
+- the system always returns 5 results, even when nothing in the catalog is actually close. for 24 songs thats fine. at scale you'd want a confidence threshold.
 
 ---
 
@@ -60,27 +62,25 @@ The CLAP comparison embeddings (`data/embeddings_clap.npy`) are also included so
 **Artist recall@5** = fraction of same-artist tracks recovered in top-5 (sanity check).
 **Cross-genre@5** = average distinct foreign genres in top-5 (the headline behavior).
 
-CLAP looked plausible by spread but artist recall exposed it as noise. MERT has a smaller spread but every individual ranking is coherent.
+the most surprising thing was that spread looked like the right metric but it was artist-recall that actually caught CLAP. spread is the obvious "are these vectors discriminative" measure, but CLAP scored higher on it than MERT and the rankings were total nonsense. artist-recall ("do mitski's two tracks find each other") was the metric that actually mattered. wasnt expecting that.
 
-In addition: 14 unit tests pass (`pytest`), covering catalog loading, embedding shape, mean-centering, query lookup edge cases, top-k correctness, and explanation generation.
+14 unit tests pass (`pytest`) covering catalog loading, embedding shape, mean-centering, query lookup edge cases, top-k correctness, and explanation generation.
 
 ---
 
 ## 8. Misuse Considerations
 
-- **Filter bubble.** Like any similarity-based recommender, Antoine will steer a user toward what they already like. The cross-genre design partially counters this but doesn't eliminate it.
-- **Audio-source copyright.** The system embeds from publicly accessible YouTube URLs and never stores audio. Anyone redeploying this with non-public sources should think about whether the resulting embeddings are derivative works.
-- **Catalog injection.** If extended into a multi-user system where users can add tracks to a shared catalog, the embedding step downloads arbitrary URLs — that's a sandboxing concern. The current single-user design avoids this entirely.
+the realistic misuse is making it too good. if you build a recommender that's really good at finding songs that hit the same vibe as something you already love, people can spend hours just chasing variations of one feeling. its the same rabbit hole problem spotify and tiktok have. the cross-genre design partially helps because it pulls you out of one genre tag, but it doesnt prevent the deeper "im stuck in a vibe" problem.
 
 ---
 
-## 9. AI Collaboration Notes
+i worked through this project with an AI assistant. two moments stood out.
 
-I worked through this project with an AI assistant. Two specific moments are worth recording.
+**helpful.** when our first embedding model (CLAP) returned cosine scores that were basically all ≈0.96, the assistant flagged it as a known failure mode for contrastive embeddings and suggested mean-centering — subtract the global average from each vector and renormalize. that one-line fix turned the rankings from useless into something coherent, and is the same fix that makes MERT actually work in this project.
 
-**One time the AI was helpful.** When CLAP's embeddings turned out to be uniformly ≈0.96 cosine-similar (the "narrow cone" failure), the assistant correctly diagnosed it as anisotropy and proposed mean-centering as the standard fix. That took the rankings from random-looking to genuinely coherent, and it's the same one-line fix that makes MERT work too. Without that suggestion I'd have either accepted the bad rankings or burned hours on the wrong fix.
+**wrong.** before we tested anything, the AI confidently said CLAP was the right tool for the job. it sounded right — music-themed name, well-known model, purpose-built. but CLAP was actually trained for audio-to-text matching, not for comparing two pieces of music against each other. running the eval harness made it obvious the recommendations were nonsense. the way to catch it wasnt to argue with the model, it was to actually run the numbers.
 
-**One time the AI was wrong.** Before testing, the assistant confidently recommended CLAP as "the right tool for music-music similarity, purpose-built for this" — it pattern-matched on "music + audio + similarity" and skipped that CLAP is specifically a *contrastive audio-text* model, not a music-music similarity model. The recommendation was plausible-sounding and well-formatted and turned out to make the entire pipeline produce nonsense. The fix wasn't to argue with the model; it was to write the eval harness, run the numbers, and switch to MERT when the numbers didn't lie. Lesson: AI judgment is fast at suggesting next steps and bad at predicting which suggestion will actually work. Validate empirically.
+the real lesson is that AI tools are great for speeding up iteration but their suggestions need to be tested empirically. they pattern-match on the obvious answer and dont always know whether that answer is the right one for your specific case.
 
 ---
 
